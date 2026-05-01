@@ -14,15 +14,22 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextHolderStrategy;
 import org.springframework.security.web.context.HttpRequestResponseHolder;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.stereotype.Component;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+@Component
 public class JwtSecurityContextRepository implements SecurityContextRepository {
 
-    private SecurityContextHolderStrategy securityContextHolderStrategy = SecurityContextHolder
-            .getContextHolderStrategy();
+    private final SecurityContextHolderStrategy securityContextHolderStrategy;
+    private final JwtTokenProvider jwtTokenProvider;
+
+    public JwtSecurityContextRepository(JwtTokenProvider jwtTokenProvider) {
+        this.securityContextHolderStrategy = SecurityContextHolder.getContextHolderStrategy();
+        this.jwtTokenProvider = jwtTokenProvider;
+    }
 
     @Override
     public boolean containsContext(HttpServletRequest request) {
@@ -68,7 +75,7 @@ public class JwtSecurityContextRepository implements SecurityContextRepository {
                 .stream()
                 .map(GrantedAuthority::getAuthority)
                 .toList();
-        String jwtToken = JwtTokenProvider.createToken(authentication.getName(), roles);
+        String jwtToken = jwtTokenProvider.createToken(authentication.getName(), roles);
         Cookie cookie = JwtCookie.createJwtCookie(jwtToken, request.isSecure(), 3600);
 
         response.addCookie(cookie);
@@ -76,11 +83,11 @@ public class JwtSecurityContextRepository implements SecurityContextRepository {
 
     private boolean hasValidToken(HttpServletRequest request, Authentication authentication) {
         return JwtCookie.readToken(request)
-                .flatMap(JwtTokenProvider::getClaimsFromToken)
-                .filter(JwtTokenProvider::isValid)
+                .flatMap(jwtTokenProvider::getClaimsFromToken)
+                .filter(jwtTokenProvider::isValid)
                 .map(claims -> {
                     String username = claims.getSubject();
-                    List<String> roles = JwtTokenProvider.getRolesFromToken(claims);
+                    List<String> roles = jwtTokenProvider.getRolesFromToken(claims);
                     Authentication existingAuth = getAuthentication(username, roles);
                     // If the existing authentication is the same as the current one, skip token
                     // regeneration
@@ -92,11 +99,11 @@ public class JwtSecurityContextRepository implements SecurityContextRepository {
     private SecurityContext getContext(HttpServletRequest request) {
         SecurityContext context = this.securityContextHolderStrategy.createEmptyContext();
         JwtCookie.readToken(request)
-                .flatMap(JwtTokenProvider::getClaimsFromToken)
-                .filter(JwtTokenProvider::isValid)
+                .flatMap(jwtTokenProvider::getClaimsFromToken)
+                .filter(jwtTokenProvider::isValid)
                 .ifPresent(claims -> {
                     String username = claims.getSubject();
-                    List<String> roles = JwtTokenProvider.getRolesFromToken(claims);
+                    List<String> roles = jwtTokenProvider.getRolesFromToken(claims);
                     context.setAuthentication(getAuthentication(username, roles));
                 });
 

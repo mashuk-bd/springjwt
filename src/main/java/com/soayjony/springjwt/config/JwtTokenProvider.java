@@ -7,24 +7,29 @@ import java.util.Optional;
 
 import javax.crypto.SecretKey;
 
+import org.springframework.stereotype.Component;
+
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 
+@Component
 public class JwtTokenProvider {
 
     private static final String ROLES = "roles";
 
-    private static final SecretKey key = Jwts.SIG.HS256.key().build();
+    private final SecretKey key;
+    private final long expirationSeconds;
 
-    private JwtTokenProvider() {
+    public JwtTokenProvider(JwtProperties jwtProperties) {
+        this.key = Keys.hmacShaKeyFor(jwtProperties.getSecret().getBytes());
+        this.expirationSeconds = jwtProperties.getExpiration();
     }
 
-    public static String createToken(String subject, List<String> roles) {
-
+    public String createToken(String subject, List<String> roles) {
         Instant now = Instant.now();
         Date issuedAt = Date.from(now);
-        Date expiredAt = Date.from(now.plusSeconds(3600)); // 1 hour expiration, you can make it configurable through
-                                                           // JwtProps
+        Date expiredAt = Date.from(now.plusSeconds(expirationSeconds));
 
         return Jwts.builder()
                 .subject(subject)
@@ -35,7 +40,7 @@ public class JwtTokenProvider {
                 .compact();
     }
 
-    public static Optional<Claims> getClaimsFromToken(String token) {
+    public Optional<Claims> getClaimsFromToken(String token) {
         try {
             return Optional.of(Jwts.parser()
                     .verifyWith(key)
@@ -47,7 +52,7 @@ public class JwtTokenProvider {
         }
     }
 
-    public static List<String> getRolesFromToken(Claims claims) {
+    public List<String> getRolesFromToken(Claims claims) {
         if (claims == null) {
             return List.of();
         }
@@ -58,7 +63,7 @@ public class JwtTokenProvider {
         return roles.stream().map(Object::toString).toList();
     }
 
-    public static boolean isValid(Claims claims) {
+    public boolean isValid(Claims claims) {
         Instant now = Instant.now();
         return claims != null
                 && claims.getExpiration() != null

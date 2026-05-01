@@ -13,6 +13,12 @@ import jakarta.servlet.http.Cookie;
 @Configuration
 public class SecurityConfig {
 
+        private final JwtSecurityContextRepository jwtSecurityContextRepository;
+
+        public SecurityConfig(JwtSecurityContextRepository jwtSecurityContextRepository) {
+                this.jwtSecurityContextRepository = jwtSecurityContextRepository;
+        }
+
         @Bean
         public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
                 return http.csrf(csrf -> csrf.disable())
@@ -20,24 +26,16 @@ public class SecurityConfig {
                                                 .requestMatchers("/login", "/login/**", "/logout").permitAll()
                                                 .anyRequest().authenticated())
                                 .securityContext(securityContext -> securityContext
-                                                .securityContextRepository(jwtSecurityContextRepository()))
+                                                .securityContextRepository(jwtSecurityContextRepository))
                                 .sessionManagement(session -> session
                                                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                                .requestCache(cache -> cache.disable()) // we will create our own request cache to
-                                                                        // handle the redirection after login instead of
-                                                                        // the default one which uses session
-                                // .httpBasic(Customizer.withDefaults())
+                                .requestCache(cache -> cache.disable())
                                 .formLogin(Customizer.withDefaults())
                                 .logout(logout -> logout
                                                 .logoutUrl("/logout")
                                                 .addLogoutHandler(jwtLogoutHandler())
                                                 .logoutSuccessUrl("/login"))
                                 .build();
-        }
-
-        @Bean
-        public JwtSecurityContextRepository jwtSecurityContextRepository() {
-                return new JwtSecurityContextRepository();
         }
 
         @Bean
