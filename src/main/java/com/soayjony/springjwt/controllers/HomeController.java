@@ -8,8 +8,13 @@ import org.springframework.web.bind.annotation.GetMapping;
 @RestController
 @RequestMapping("/")
 public class HomeController {
-    @GetMapping()
+    @GetMapping
     public String index() {
         return "Hello, Spring Boot!";
+    }
+
+    @GetMapping("second")
+    public String second() {
+        return "Hello from second";
     }
 }
