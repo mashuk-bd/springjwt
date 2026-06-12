@@ -23,11 +23,13 @@ public class JwtTokenProvider {
     private final SecretKey key;
     private final long expirationSeconds;
     private final long maxSessionDurationSeconds;
+    private final long inactivityTimeoutSeconds;
 
     public JwtTokenProvider(JwtProperties jwtProperties) {
         this.key = Keys.hmacShaKeyFor(jwtProperties.getSecret().getBytes());
         this.expirationSeconds = jwtProperties.getExpiration();
         this.maxSessionDurationSeconds = jwtProperties.getMaxSessionDuration();
+        this.inactivityTimeoutSeconds = jwtProperties.getInactivityTimeout();
     }
 
     public String createToken(String subject, List<String> roles) {
@@ -99,11 +101,29 @@ public class JwtTokenProvider {
     }
 
     public boolean isValid(Claims claims) {
+        if (claims == null) {
+            return false;
+        }
         Instant now = Instant.now();
-        return claims != null
-                && claims.getExpiration() != null
-                && claims.getExpiration().after(Date.from(now))
-                && !isSessionExpired(claims);
+        
+        // 1. Check standard JWT expiration
+        if (claims.getExpiration() == null || claims.getExpiration().before(Date.from(now))) {
+            return false;
+        }
+        
+        // 2. Check maximum session duration
+        if (isSessionExpired(claims)) {
+            return false;
+        }
+
+        // 3. Check inactivity timeout
+        long lastActivity = getLastActivityTime(claims);
+        long inactivityDuration = now.getEpochSecond() - lastActivity;
+        if (inactivityDuration > inactivityTimeoutSeconds) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -133,8 +153,9 @@ public class JwtTokenProvider {
         long now = System.currentTimeMillis() / 1000;
         long inactivityDuration = now - lastActivity;
 
-        // Refresh if user has been active within the inactivity timeout window
-        return inactivityDuration < inactivityTimeoutSeconds && isValid(claims);
+        // Debounce: only refresh if at least half of the inactivity window has passed
+        long refreshThreshold = inactivityTimeoutSeconds / 2;
+        return isValid(claims) && inactivityDuration >= refreshThreshold;
     }
 
     /**
