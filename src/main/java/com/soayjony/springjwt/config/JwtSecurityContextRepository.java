@@ -15,7 +15,6 @@ import org.springframework.security.core.context.SecurityContextHolderStrategy;
 import org.springframework.security.web.context.HttpRequestResponseHolder;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Component;
-
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -25,10 +24,12 @@ public class JwtSecurityContextRepository implements SecurityContextRepository {
 
     private final SecurityContextHolderStrategy securityContextHolderStrategy;
     private final JwtTokenProvider jwtTokenProvider;
+    private final JwtProperties jwtProperties;
 
-    public JwtSecurityContextRepository(JwtTokenProvider jwtTokenProvider) {
+    public JwtSecurityContextRepository(JwtTokenProvider jwtTokenProvider, JwtProperties jwtProperties) {
         this.securityContextHolderStrategy = SecurityContextHolder.getContextHolderStrategy();
         this.jwtTokenProvider = jwtTokenProvider;
+        this.jwtProperties = jwtProperties;
     }
 
     @Override
@@ -46,14 +47,15 @@ public class JwtSecurityContextRepository implements SecurityContextRepository {
     @Deprecated(since = "6.0", forRemoval = true)
     public SecurityContext loadContext(HttpRequestResponseHolder requestResponseHolder) {
         HttpServletRequest request = requestResponseHolder.getRequest();
-        return getContext(request);
+        HttpServletResponse response = requestResponseHolder.getResponse();
+        return getContext(request, response);
     }
 
     @Override
     public DeferredSecurityContext loadDeferredContext(HttpServletRequest request) {
-        Supplier<SecurityContext> supplier = () -> getContext(request);
-        return new JwtDeferredSecurityContext(supplier, this.securityContextHolderStrategy);
-
+        Supplier<SecurityContext> supplier = () -> getContext(request, null);
+        return new JwtDeferredSecurityContext(supplier, this.securityContextHolderStrategy,
+                this.jwtTokenProvider, this.jwtProperties);
     }
 
     @Override
@@ -75,8 +77,11 @@ public class JwtSecurityContextRepository implements SecurityContextRepository {
                 .stream()
                 .map(GrantedAuthority::getAuthority)
                 .toList();
-        String jwtToken = jwtTokenProvider.createToken(authentication.getName(), roles);
-        Cookie cookie = JwtCookie.createJwtCookie(jwtToken, request.isSecure(), 3600);
+
+        // Create token with current time as session start
+        long sessionStartTime = System.currentTimeMillis();
+        String jwtToken = jwtTokenProvider.createToken(authentication.getName(), roles, sessionStartTime);
+        Cookie cookie = JwtCookie.createJwtCookie(jwtToken, request.isSecure(), (int) jwtProperties.getExpiration());
 
         response.addCookie(cookie);
     }
@@ -96,8 +101,9 @@ public class JwtSecurityContextRepository implements SecurityContextRepository {
                 .orElse(false);
     }
 
-    private SecurityContext getContext(HttpServletRequest request) {
+    private SecurityContext getContext(HttpServletRequest request, HttpServletResponse response) {
         SecurityContext context = this.securityContextHolderStrategy.createEmptyContext();
+
         JwtCookie.readToken(request)
                 .flatMap(jwtTokenProvider::getClaimsFromToken)
                 .filter(jwtTokenProvider::isValid)
