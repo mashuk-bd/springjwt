@@ -88,16 +88,18 @@ public class JwtDeferredSecurityContext implements DeferredSecurityContext {
             JwtCookie.readToken(request)
                     .flatMap(jwtTokenProvider::getClaimsFromToken)
                     .ifPresent(claims -> {
-                        if (jwtTokenProvider.shouldRefreshToken(claims, jwtProperties.getInactivityTimeout())) {
-                            // User is active - refresh the token
-                            String newToken = jwtTokenProvider.refreshToken(claims);
-                            Cookie newCookie = JwtCookie.createJwtCookie(
-                                    newToken,
-                                    request.isSecure(),
-                                    (int) jwtProperties.getExpiration());
-                            response.addCookie(newCookie);
-                        } else if (jwtTokenProvider.isSessionExpired(claims)) {
-                            // Session has exceeded max duration - expire the token
+                        if (jwtTokenProvider.isValid(claims)) {
+                            if (jwtTokenProvider.shouldRefreshToken(claims, jwtProperties.getInactivityTimeout())) {
+                                // User is active - refresh the token
+                                String newToken = jwtTokenProvider.refreshToken(claims);
+                                Cookie newCookie = JwtCookie.createJwtCookie(
+                                        newToken,
+                                        request.isSecure(),
+                                        (int) jwtProperties.getExpiration());
+                                response.addCookie(newCookie);
+                            }
+                        } else {
+                            // Token is invalid (expired, inactive, or max duration exceeded) - clear the cookie
                             Cookie expiredCookie = JwtCookie.createJwtCookie("", request.isSecure(), 0);
                             response.addCookie(expiredCookie);
                         }
