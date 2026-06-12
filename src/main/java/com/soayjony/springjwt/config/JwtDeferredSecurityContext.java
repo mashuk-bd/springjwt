@@ -85,25 +85,32 @@ public class JwtDeferredSecurityContext implements DeferredSecurityContext {
             }
 
             // Extract token and check if refresh is needed
-            JwtCookie.readToken(request)
-                    .flatMap(jwtTokenProvider::getClaimsFromToken)
-                    .ifPresent(claims -> {
-                        if (jwtTokenProvider.isValid(claims)) {
-                            if (jwtTokenProvider.shouldRefreshToken(claims, jwtProperties.getInactivityTimeout())) {
-                                // User is active - refresh the token
-                                String newToken = jwtTokenProvider.refreshToken(claims);
-                                Cookie newCookie = JwtCookie.createJwtCookie(
-                                        newToken,
-                                        request.isSecure(),
-                                        (int) jwtProperties.getExpiration());
-                                response.addCookie(newCookie);
-                            }
-                        } else {
-                            // Token is invalid (expired, inactive, or max duration exceeded) - clear the cookie
-                            Cookie expiredCookie = JwtCookie.createJwtCookie("", request.isSecure(), 0);
-                            response.addCookie(expiredCookie);
+            java.util.Optional<String> tokenOpt = JwtCookie.readToken(request);
+            if (tokenOpt.isPresent()) {
+                java.util.Optional<io.jsonwebtoken.Claims> claimsOpt = jwtTokenProvider.getClaimsFromToken(tokenOpt.get());
+                if (claimsOpt.isPresent()) {
+                    io.jsonwebtoken.Claims claims = claimsOpt.get();
+                    if (jwtTokenProvider.isValid(claims)) {
+                        if (jwtTokenProvider.shouldRefreshToken(claims, jwtProperties.getInactivityTimeout())) {
+                            // User is active - refresh the token
+                            String newToken = jwtTokenProvider.refreshToken(claims);
+                            Cookie newCookie = JwtCookie.createJwtCookie(
+                                    newToken,
+                                    request.isSecure(),
+                                    (int) jwtProperties.getExpiration());
+                            response.addCookie(newCookie);
                         }
-                    });
+                    } else {
+                        // Token is invalid (expired, inactive, or max duration exceeded) - clear the cookie
+                        Cookie expiredCookie = JwtCookie.createJwtCookie("", request.isSecure(), 0);
+                        response.addCookie(expiredCookie);
+                    }
+                } else {
+                    // Token is malformed or signature is invalid - clear the cookie
+                    Cookie expiredCookie = JwtCookie.createJwtCookie("", request.isSecure(), 0);
+                    response.addCookie(expiredCookie);
+                }
+            }
         } catch (Exception e) {
             // Log and continue - don't break the security context loading
             logger.debug("Error processing JWT token refresh: " + e.getMessage());
