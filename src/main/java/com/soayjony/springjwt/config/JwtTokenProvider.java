@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import javax.crypto.SecretKey;
 
@@ -24,6 +25,11 @@ public class JwtTokenProvider {
     private final long expirationSeconds;
     private final long maxSessionDurationSeconds;
     private final long inactivityTimeoutSeconds;
+    private Supplier<Instant> timeSource = Instant::now;
+
+    public void setTimeSource(Supplier<Instant> timeSource) {
+        this.timeSource = timeSource;
+    }
 
     public JwtTokenProvider(JwtProperties jwtProperties) {
         this.key = Keys.hmacShaKeyFor(jwtProperties.getSecret().getBytes());
@@ -33,11 +39,11 @@ public class JwtTokenProvider {
     }
 
     public String createToken(String subject, List<String> roles) {
-        return createToken(subject, roles, System.currentTimeMillis());
+        return createToken(subject, roles, timeSource.get().toEpochMilli());
     }
 
     public String createToken(String subject, List<String> roles, long sessionStartTime) {
-        Instant now = Instant.now();
+        Instant now = timeSource.get();
         Date issuedAt = Date.from(now);
         Date expiredAt = Date.from(now.plusSeconds(expirationSeconds));
         Date sessionExpiry = new Date(sessionStartTime + (maxSessionDurationSeconds * 1000));
@@ -62,7 +68,7 @@ public class JwtTokenProvider {
         List<String> roles = getRolesFromToken(claims);
         long sessionStart = getSessionStartTime(claims);
 
-        Instant now = Instant.now();
+        Instant now = timeSource.get();
         Date expiredAt = Date.from(now.plusSeconds(expirationSeconds));
         Date sessionExpiry = new Date(sessionStart * 1000 + (maxSessionDurationSeconds * 1000));
 
@@ -71,7 +77,7 @@ public class JwtTokenProvider {
                 .claim(ROLES, roles)
                 .claim(LAST_ACTIVITY, now.getEpochSecond())
                 .claim(SESSION_START, sessionStart)
-                .issuedAt(new Date())
+                .issuedAt(Date.from(now))
                 .expiration(expiredAt)
                 .signWith(key)
                 .compact();
@@ -104,7 +110,7 @@ public class JwtTokenProvider {
         if (claims == null) {
             return false;
         }
-        Instant now = Instant.now();
+        Instant now = timeSource.get();
         
         // 1. Check standard JWT expiration
         if (claims.getExpiration() == null || claims.getExpiration().before(Date.from(now))) {
@@ -134,7 +140,7 @@ public class JwtTokenProvider {
             return true;
         }
         long sessionStartSeconds = getSessionStartTime(claims);
-        long now = System.currentTimeMillis() / 1000;
+        long now = timeSource.get().getEpochSecond();
         long sessionDuration = now - sessionStartSeconds;
 
         return sessionDuration > maxSessionDurationSeconds;
@@ -150,7 +156,7 @@ public class JwtTokenProvider {
         }
 
         long lastActivity = getLastActivityTime(claims);
-        long now = System.currentTimeMillis() / 1000;
+        long now = timeSource.get().getEpochSecond();
         long inactivityDuration = now - lastActivity;
 
         // Debounce: only refresh if at least half of the inactivity window has passed
